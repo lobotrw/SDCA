@@ -76,3 +76,55 @@ def test_signal_thresholds():
     buy, sell = sdca.signals(df, -1.0, 1.5)
     assert buy.tolist() == [True, False, False, False, False]
     assert sell.tolist() == [False, False, False, True, True]
+
+
+# ---- cycle-relative sell mode -------------------------------------------------------
+
+def test_cycle_percentile_no_lookahead(spliced):
+    full = sdca.compute_sdca(spliced)
+    for cut in ["2018-01-01", "2021-06-30", "2025-01-15"]:
+        part = sdca.compute_sdca(spliced[:cut])
+        pd.testing.assert_series_equal(part["Cycle_Pct"], full.loc[:cut, "Cycle_Pct"])
+
+
+def test_cycle_percentile_ignores_the_future():
+    # changing values AFTER day t must not change the percentile on day t
+    x = pd.Series(np.random.default_rng(3).normal(size=3000), index=pd.date_range("2010-01-01", periods=3000))
+    y = x.copy(); y.iloc[2500:] += 100.0
+    a = sdca.cycle_percentile(x); b = sdca.cycle_percentile(y)
+    pd.testing.assert_series_equal(a.iloc[:2500], b.iloc[:2500])
+
+
+def test_cycle_percentile_definition():
+    x = pd.Series(np.arange(1, 11, dtype=float))
+    p = sdca.cycle_percentile(x, window=5, min_periods=3)
+    assert p.iloc[:2].isna().all()
+    assert p.iloc[-1] == 1.0                                  # new high: above all 4 previous days
+    x2 = pd.Series([5, 4, 3, 2, 1.0])
+    assert sdca.cycle_percentile(x2, window=5, min_periods=3).iloc[-1] == 0.0   # new low
+    x3 = pd.Series([1, 3, 2, 4, 2.5])
+    assert sdca.cycle_percentile(x3, window=5, min_periods=3).iloc[-1] == 0.5   # above 1 and 2
+
+
+def test_cycle_percentile_window_and_range(spliced):
+    df = sdca.compute_sdca(spliced)
+    p = df["Cycle_Pct"].dropna()
+    assert p.between(0, 1).all()
+    first_logdev = df["LogDev"].first_valid_index()
+    # needs CYCLE_MIN_PERIODS valid LogDev values first
+    assert p.index[0] == df["LogDev"].dropna().index[sdca.CYCLE_MIN_PERIODS - 1]
+    assert p.index[0] > first_logdev
+
+
+def test_signals_sell_modes():
+    df = pd.DataFrame({"Z_Diff": [-2.0, 0.0, 2.0], "Cycle_Pct": [0.1, 0.9, 0.5]})
+    buy_z, sell_z = sdca.signals(df, -1.0, 1.5, sell_mode="zscore")
+    buy_c, sell_c = sdca.signals(df, -1.0, 0.85, sell_mode="cycle")
+    assert buy_z.tolist() == buy_c.tolist() == [True, False, False]
+    assert sell_z.tolist() == [False, False, True]
+    assert sell_c.tolist() == [False, True, False]
+    # default OUT threshold follows the mode (1.5 for Z, 0.85 for the percentile)
+    assert sdca.signals(df, sell_mode="cycle")[1].tolist() == [False, True, False]
+    assert sdca.signals(df, sell_mode="zscore")[1].tolist() == [False, False, True]
+    with pytest.raises(ValueError):
+        sdca.signals(df, sell_mode="nope")

@@ -62,9 +62,16 @@ c3.markdown("""<hr style="height:4px;border:none;color:#333;background-color:#1d
 
 
 
+SELL_MODE_LABELS = {"cycle":  "Cycle percentile (4-year rolling rank)",
+                    "zscore": "Z-score (expanding, all history)"}
+sell_mode = c3.radio("Sell signal method", list(SELL_MODE_LABELS), format_func=SELL_MODE_LABELS.get, key="sell_mode")
 in_threshold  = c3.number_input("Threshold for SDCA IN", -3.0, 0.0, sdca.DEFAULT_IN_THRESHOLD, 0.1)
-out_threshold = c3.number_input("Threshold for SDCA OUT", 0.0, 4.0, sdca.DEFAULT_OUT_THRESHOLD, 0.1)
-below_threshold, above_threshold = sdca.signals(price_data, in_threshold, out_threshold)
+if sell_mode == "cycle":
+    out_threshold = c3.number_input("Threshold for SDCA OUT (cycle percentile, 0-1)", 0.50, 1.00,
+                                    sdca.DEFAULT_CYCLE_OUT_THRESHOLD, 0.01, key="out_cycle")
+else:
+    out_threshold = c3.number_input("Threshold for SDCA OUT", 0.0, 4.0, sdca.DEFAULT_OUT_THRESHOLD, 0.1, key="out_z")
+below_threshold, above_threshold = sdca.signals(price_data, in_threshold, out_threshold, sell_mode=sell_mode)
 ax.scatter(price_data.index[below_threshold], price_data['BTC-USD'][below_threshold]*0.7,
             color       = '#2788e8', 
             marker      = 'D', 
@@ -74,7 +81,7 @@ ax.scatter(price_data.index[below_threshold], price_data['BTC-USD'][below_thresh
 ax.scatter(price_data.index[above_threshold], price_data['BTC-USD'][above_threshold]*1.35,
             color       = 'red', 
             marker      = 'v', 
-            label       = 'DCA OUT', 
+            label       = 'DCA OUT' + (' (cycle percentile)' if sell_mode == "cycle" else ''), 
             edgecolor   = 'none')
 
 # Add colorbar
@@ -96,6 +103,13 @@ with c2:
     st.markdown("""<hr style="height:4px;border:none;color:#333;background-color:#1d9ff0;" /> """, unsafe_allow_html=True)
     st.pyplot(fig, width='stretch')
 
+if sell_mode == "cycle":
+    sell_text = (f':red[▼] Sell signals trigger when today\'s ln(price / SMA) is higher than '
+                 f'**{out_threshold:.0%}** of the last 4 years (one halving cycle). Ranking against one cycle '
+                 f'keeps working even though each cycle peaks lower relative to the SMA.')
+else:
+    sell_text = f':red[▼] Sell signals trigger when the Z-score exceeds **"Threshold for SDCA OUT" ({out_threshold:+.2f})**,'
+
 with c3:
     st.subheader("How it Works?")
     st.write(f'''
@@ -110,7 +124,7 @@ Price history since 2010 (Coin Metrics, extended with Yahoo Finance from 2014-09
     
 :blue[◆] Buy signals are identified when the Z-score drops below **"Threshold for SDCA IN" ({in_threshold:+.2f})**. 
 
-:red[▼] Sell signals trigger when it exceeds **"Threshold for SDCA OUT" ({out_threshold:+.2f})**, 
+{sell_text}
 aiming for disciplined, data-driven investment strategies.
 
 ''')
@@ -122,6 +136,12 @@ c3.metric(label="**Current Z score**",
     value=round(z_val, 2), 
     delta=round(z_change, 2),   # today minus yesterday: ▲ = Z went up
     delta_color="inverse")
+if sell_mode == "cycle":
+    pct = price_data["Cycle_Pct"].dropna()
+    c3.metric(label="**Cycle percentile (sell above threshold)**",
+        value=f"{pct.iloc[-1]:.0%}",
+        delta=f"{(pct.iloc[-1] - pct.iloc[-2]) * 100:+.1f} pts",   # today minus yesterday
+        delta_color="inverse")
 
 c2.write("#")
 c2.write("""
@@ -141,6 +161,7 @@ with st.sidebar:
 - **Deviation Calculation**: Measures the relative (log) distance ln(price / SMA) instead of a dollar difference.
 - **Z-score Calculation**: Normalizes the deviation with an expanding (no look-ahead) mean and standard deviation, so past values never change.
 - **Gradient Color Visualization**: Visualizes price trends with a gradient color background based on Z-score values.
+- **Cycle-relative sells (default)**: Optionally sells when ln(price / SMA) ranks above a percentile of the last 4 years, which adapts to each cycle peaking lower.
 - **Threshold-based Alerts**: Marks potential entry points (buy signals) when the Z-score falls below {sdca.DEFAULT_IN_THRESHOLD:+.2f}, and exit points (sell signals) when it rises above {sdca.DEFAULT_OUT_THRESHOLD:+.2f} (defaults, adjustable).
 
 *This system aims to provide objective investment decisions, reduce emotional bias, and optimize cryptocurrency investments over the long term.*
