@@ -5,14 +5,30 @@
 The Crypto SDCA System is designed for long-term investing in cryptocurrencies, employing systematic dollar-cost averaging (SDCA) principles. It utilizes historical price data and statistical metrics to automate investment decisions based on predefined buy and sell thresholds.
 
 #### Key Features
-- **Z-score Calculation**: Normalizes the difference using Z-score, indicating how far the current price deviates from the SMA.
+- **Relative deviation**: Measures how far price is from the 200-week SMA as a log ratio, `ln(price / SMA)`, so deviations in 2015 and 2025 are comparable (a dollar gap made recent years dominate).
+- **No look-ahead Z-score**: Normalizes the deviation with an *expanding* mean and standard deviation, so each day's Z-score uses only data available on that day and past values never change when new data arrives.
 - **Gradient Color Visualization**: Displays the price chart with a gradient color background based on the Z-score of the difference, facilitating visual trend analysis.
 ![plot](images/image.png)
 
-1. **200-week Moving Average**: Computes the 200-week SMA to establish a baseline trend indicator.
-2. **Z-score and Gradient Visualization**: Calculates the Z-score of the difference between the current price and the SMA. This Z-score is used to color-code the price chart, highlighting periods of divergence from the long-term trend.
-3. **Threshold-based Signals**: Identifies buying opportunities when the Z-score of the distance between the price and SMA falls below -0.70, indicated by upward triangles on the chart. It also identifies selling opportunities when the Z-score rises above a predefined sell threshold (e.g., +2.00), marked by downward triangles.
+1. **200-week Moving Average**: Computes the 200-week (1,400-day) SMA to establish a baseline trend indicator.
+2. **Z-score and Gradient Visualization**: Calculates `LogDev = ln(price / SMA)` and its Z-score `(LogDev - mean) / std`, where mean and std are expanding statistics over all days up to and including the current one (minimum one year of data). An expanding window was chosen over a rolling one because a 200-week cycle lasts ~4 years: a rolling window short enough to react would only hold one cycle and re-centre within it. This Z-score color-codes the price chart, highlighting periods of divergence from the long-term trend.
+3. **Threshold-based Signals**: Identifies buying opportunities when the Z-score falls below the SDCA IN threshold (default **-1.0**), marked by blue diamonds (◆) below the price. It identifies selling opportunities when the Z-score rises above the SDCA OUT threshold (default **+1.5**), marked by red downward triangles (▼) above the price. Both thresholds are adjustable in the app.
 ![plot](images/image1.png)
+
+#### Data
+- **Yahoo Finance** `BTC-USD` daily closes (from 2014-09-17), downloaded live via `yfinance`.
+- **Coin Metrics community data** (`PriceUSD`, https://github.com/coinmetrics/data, CC BY-NC 4.0) for 2010-07-18 to 2014-09-16, bundled in `data/btc_pre2014.csv`. Yahoo takes precedence wherever the two overlap; the prices agree to within 0.2% on the overlap day.
+- With the extended history the 200-week SMA starts on **2014-05-17** (instead of mid-2018), and the Z-score from 2015-05-16, so the 2015, 2017, 2018/19, 2021 and 2022 cycles are all covered.
+
+#### Default thresholds
+With the log deviation and no-look-ahead Z the scale changed, so the defaults were recalibrated from -0.7 / +2.0 to **-1.0 / +1.5**. Historically this flags buys in mid/late 2015, Nov 2018 - Mar 2019, Mar - Apr 2020 and May 2022 - Oct 2023, and sells in May 2017 - Mar 2018 and Jan - Apr 2021. The 2024/25 peak sat much closer to the 200-week SMA in relative terms (about +150% at most, versus +1,500% in 2017), so it does not reach a sell signal at these defaults.
+
+#### Running
+```bash
+pip install -r requirements.txt
+streamlit run SDCA_crypto.py
+pytest tests          # unit tests for the calculation in sdca.py
+```
 
 4. **Automated Insights**: Provides a systematic approach to cryptocurrency investing, automating decisions based on statistical analysis of price trends.
 
