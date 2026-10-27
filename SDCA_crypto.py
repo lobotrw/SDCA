@@ -30,6 +30,14 @@ close       = sdca.splice_history(sdca.load_pre2014_history(), yahoo_close)
 # See sdca.compute_sdca for the details of each step.
 price_data = sdca.compute_sdca(close)
 
+# Second model: composite risk + accumulation/distribution curve (see composite.py).
+MODEL_LABELS = {"sdca": "SDCA (200-week SMA Z-score)", "composite": "Composite risk + Accum/Dist curve"}
+model_choice = st.radio("Model", list(MODEL_LABELS), format_func=MODEL_LABELS.get, key="model", horizontal=True)
+if model_choice == "composite":
+    import composite_view
+    composite_view.render(close)
+    st.stop()
+
 # Create a custom colormap with three colors
 colors           = [(0, 'purple'), (0.35, '#33cff6'), (1, 'red')]
 n_bins           = 100  # Discretizes the interpolation into bins
