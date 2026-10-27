@@ -30,11 +30,63 @@ Each cycle has peaked lower relative to the 200-week SMA: about 16x in 2017, abo
 
 Buys always use the expanding Z-score. Three cycles are too few to validate any sell rule statistically, so treat the thresholds as judgement, not fitted truth.
 
+#### Composite risk model (second, selectable model)
+`composite.py` adds the model from the *Investing Campus BTC Strategic Dollar Cost Averaging Signal* web app
+(https://sdca-signals-automation-production-bdd2.up.railway.app/) next to the 200-week SMA logic, which is unchanged.
+In the Streamlit app pick **Model → Composite risk + Accum/Dist curve**. From the command line:
+```bash
+python composite_report.py                     # causal model, today's action, backtest, charts -> out/composite/
+python composite_report.py --cash 5000 --start 2018-01-01 --capital 10000 \
+    --indicators price,sharpe,cbpl,onchain --onchain-source site \
+    --curve "10,10,10,10,5,0,0,0,0,0,0,0,0,0,0,0,0,-0.5,-2,-4,-10"
+```
+The web app is one static page that computes everything in the browser, so the formulas were read from its JavaScript:
+
+* **Asymmetric Tail Curvature (price z).** Quantiles of log10(price) are a quadratic in log time:
+  `Q_tau = c + a*x + b*x^2`, `x = ln(days since 2009-01-01) - 7.9914`. The curvature `b` is shared within
+  (Q1, Q10, Q25), (Q50) and (Q75, Q95, Q99), and the 7 prices are sorted so the bands never cross.
+  `z = +3` at Q1, `0` at Q50, `-3` at Q99, linear in log price, clipped to [-3, 3]. The Q1%/Q99% rails are Q1 and Q99.
+* **Indicators.** Sharpe (realized P/L, 14d EMA), Cost-basis profit/loss ratio (7d EMA) and the Onchain risk composite
+  (7d EMA) come from ChartInspect, and the app embeds them as precomputed z-scores (+ = cheap).
+* **Composite.** It is the weighted mean of the enabled z's (default: price, CBPL and on-chain are on, Sharpe is off,
+  each weight is 1). A day only counts if every enabled indicator has data. The result is clipped to [-3, 3], and
+  `risk = 50 - 50*z/3`. The bands are 0-25 Buy, 25-50 Accumulate, 50-75 Trim and 75-100 Sell.
+* **Curve.** It has 21 nodes at risk 0, 5, ..., 100 and is linear between them. The default is
+  `10,10,10,10,5,0,...,0,-0.5,-2,-4,-10` from 0 to 100 risk. A positive value buys that % of the current cash that day;
+  a negative value sells that % of the current BTC.
+* **Backtest.** It is daily at the close with no fees. The default start is 2015-01-01 with $10,000. The benchmark is a
+  lump sum on day 1, and max drawdown is measured peak to trough on the daily portfolio value.
+* **Today's action.** The curve is read at the last day on which the full composite exists. A buy is
+  `cash * rate / 100` USD.
+
+**Look-ahead and the two modes.** The app uses the paper's published *full-sample* coefficients (fitted on 2010-2026)
+on every past date, and it ranks Sharpe against its *full* history. Both use future data.
+* `causal` (default) refits the quantile regression walk-forward (an expanding window, refitted every 30 days on weekly
+  samples up to that day; the first fit needs 4 years of data, so it starts in mid-2014). It ranks Sharpe with an
+  expanding percentile. Because a rank is monotone, this is exact even without the raw data. The on-chain composite is
+  rebuilt from free Coin Metrics community data: MVRV, NUPL, MVRV-Z and Puell, each with an expanding percentile, then
+  a 7d EMA and an expanding robust z. Only 4 of ChartInspect's 8 inputs are available for free.
+  `--onchain-source site` uses the app's own on-chain series instead.
+* `replica` reproduces the app exactly. On the app's own price data it matches the app's JavaScript to within 1e-9.
+
+From 2015-01-01 with $10k, using the default curve and data to 2026-10-26, the published-coefficient replica turns $10k
+into about $27M against $2.5M for the lump sum. The walk-forward version ends at about $1.9M with the Coin Metrics
+on-chain proxy and about $3.4M with the app's on-chain series. Most of the app's backtest edge comes from fitting the
+bands on the future. `out/composite/summary.json` breaks this down by component.
+
+Data: the app's indicator series are downloaded at run time from its page into `data/cache/` (git-ignored and not
+redistributed, since they are derived from ChartInspect). Coin Metrics community data is CC BY-NC 4.0.
+The app's source has no licence notice.
+
+![composite](images/composite_risk_causal.png)
+![hindsight](images/composite_causal_vs_replica.png)
+
 #### Running
 ```bash
 pip install -r requirements.txt
 streamlit run SDCA_crypto.py
-pytest tests          # unit tests for the calculation in sdca.py
+python composite_report.py   # composite risk model report -> out/composite/
+pytest tests          # unit tests for sdca.py and composite.py
 ```
 
 4. **Automated Insights**: Provides a systematic approach to cryptocurrency investing, automating decisions based on statistical analysis of price trends.
